@@ -23,6 +23,7 @@ public sealed partial class MainPage : Page
     private readonly string statusPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "status.txt");
     private bool started;
     private int pointerLogs;
+    private bool hardwareMouseSeen;
     private int pressLogs;
     private long panelMoves, panelPresses, coreMoves, corePresses, panelStamp, keyCount, moveStamp;
     private double rawX, rawY;
@@ -83,9 +84,62 @@ public sealed partial class MainPage : Page
         Panel.PointerPressed += (_, e) => { panelPresses++; panelStamp = Environment.TickCount64; logPress("panel", e.Pointer.PointerDeviceType.ToString(), e.GetCurrentPoint(Panel).Properties.PointerUpdateKind); var pt = e.GetCurrentPoint(Panel); postButton(pt.Position, pt.Properties.PointerUpdateKind, true); };
         Panel.PointerReleased += (_, e) => { var pt = e.GetCurrentPoint(Panel); postButton(pt.Position, pt.Properties.PointerUpdateKind, false); };
 
-        // A physical USB mouse is not supported: Xbox only delivers hardware mouse input to UWP apps Microsoft has allowed individually.
-        // (The console turns the left stick into mouse-like events, so no mouse code runs here at all; the pad handler drives the cursor.)
+        // Mouse support via the manifest spoof (Package.appxmanifest): the uap5 ApplicationRequirements + HID device capability
+        // make the Xbox shell deliver real hardware mouse events to this app instead of only the stick-emulated pointer.
+        // Events with PointerDeviceType == Mouse are genuine hardware mice and drive the osu! cursor directly;
+        // anything else is still the console's emulated pointer and follows the configured pointer mode as before.
         var coreWin = Window.Current.CoreWindow;
+
+        bool isHardwareMouse(Windows.UI.Xaml.Input.PointerRoutedEventArgs e) => e.Pointer.PointerDeviceType == Windows.UI.Xaml.Input.PointerDeviceType.Mouse;
+
+        void onHardwareMove(double x, double y)
+        {
+            if (!hardwareMouseSeen) { hardwareMouseSeen = true; log("hardware mouse detected (manifest spoof active), taking over the cursor"); }
+            moveStamp = Environment.TickCount64;
+            rawX = x;
+            rawY = y;
+            bridge.PostPointerMove((float)x, (float)y);
+        }
+
+        Panel.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler((_, e) =>
+        {
+            if (isHardwareMouse(e)) { panelMoves++; onHardwareMove(e.GetCurrentPoint(Panel).Position.X, e.GetCurrentPoint(Panel).Position.Y); }
+        }), true);
+
+        Panel.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, e) =>
+        {
+            if (isHardwareMouse(e)) { var pt = e.GetCurrentPoint(Panel); postButton(pt.Position, pt.Properties.PointerUpdateKind, true); }
+        }), true);
+
+        Panel.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, e) =>
+        {
+            if (isHardwareMouse(e)) { var pt = e.GetCurrentPoint(Panel); postButton(pt.Position, pt.Properties.PointerUpdateKind, false); }
+        }), true);
+
+        coreWin.PointerMoved += (_, e) =>
+        {
+            if (e.CurrentPoint.PointerDevice.PointerDeviceType == Windows.UI.Input.CorePointerDeviceType.Mouse)
+                onHardwareMove(e.CurrentPoint.Position.X, e.CurrentPoint.Position.Y);
+        };
+        coreWin.PointerPressed += (_, e) =>
+        {
+            if (e.CurrentPoint.PointerDevice.PointerDeviceType == Windows.UI.Input.CorePointerDeviceType.Mouse)
+                postButton(e.CurrentPoint.Position, e.CurrentPoint.Properties.PointerUpdateKind, true);
+        };
+        coreWin.PointerReleased += (_, e) =>
+        {
+            if (e.CurrentPoint.PointerDevice.PointerDeviceType == Windows.UI.Input.CorePointerDeviceType.Mouse)
+                postButton(e.CurrentPoint.Position, e.CurrentPoint.Properties.PointerUpdateKind, false);
+        };
+        coreWin.PointerWheelChanged += (_, e) =>
+        {
+            var pt = e.CurrentPoint;
+            if (pt.PointerDevice.PointerDeviceType != Windows.UI.Input.CorePointerDeviceType.Mouse) return;
+            onHardwareMove(pt.Position.X, pt.Position.Y);
+            float notches = pt.Properties.MouseWheelDelta / 120f;
+            bridge.PostPointerWheel(pt.Properties.IsHorizontalMouseWheel ? notches : 0,
+                                   pt.Properties.IsHorizontalMouseWheel ? 0 : notches, true);
+        };
 
         // Hiding the system pointer (PointerCursor = null) stops its move events on Xbox (build 16: moves 0) but presses (A) still arrive,
         // so in "hybrid" mode the pad handler drives the osu! cursor and the console pointer is only used for clicks.

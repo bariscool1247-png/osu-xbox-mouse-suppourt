@@ -3,7 +3,10 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  IgnorableNamespaces="uap mp">
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:rescap6="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities/6"
+  IgnorableNamespaces="uap uap5 mp rescap rescap6">
 
   <Identity Name="OsuXboxUwpOsu" Publisher="CN=OsuXboxDev" Version="1.0.0.0" />
 
@@ -25,12 +28,18 @@
 
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="UwpOsu.App">
+      <!-- Mouse spoof: declare the app as needing mouse/keyboard injection so the Xbox shell
+           delivers hardware mouse events to it (the same trick Dev Mode apps use to "spoof"
+           pointer support). RequiresPointerMode "never" keeps the console from replacing our
+           cursor with its own stick-driven system pointer. -->
+      <uap5:ApplicationRequirements RequiresMouseAndKeyboardInjection="true" />
       <uap:VisualElements
         DisplayName="osu! (Xbox)"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Description="osu!"
-        BackgroundColor="#14142A">
+        BackgroundColor="#14142A"
+        uap5:RequiresPointerMode="Never">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
@@ -39,6 +48,24 @@
 
   <Capabilities>
     <Capability Name="internetClient" />
+    <!-- Restricted capabilities declared to unlock peripheral input on Xbox dev mode:
+         humanInterfaceDevice -> raw HID access (mouse/keyboard),
+         gdiUniversal / unvirtualizedResources -> the manifest entries Microsoft's own
+         pointer-enabled apps carry; ignored by the store, honoured in dev mode sideloads. -->
+    <DeviceCapability Name="humaninterfacedevice">
+      <Device Id="any">
+        <Function Type="usage:GenericDesktop Pointer" />
+        <Function Type="usage:GenericDesktop Keyboard" />
+        <Function Type="usage:GenericDesktop Mouse" />
+      </Device>
+    </DeviceCapability>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap6:DeviceCapability Name="humaninterfacedevice:unvirtualized">
+      <rescap6:Device>
+        <rescap6:DeviceId>ANY</rescap6:DeviceId>
+        <rescap6:Function Type="usage:GenericDesktop.Pointer" />
+      </rescap6:Device>
+    </rescap6:DeviceCapability>
   </Capabilities>
 </Package>
 
