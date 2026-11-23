@@ -1,0 +1,105 @@
+name: Release
+
+# Builds the Xbox (UWP) package and publishes it to the GitHub Releases section.
+# Runs automatically when you push a tag like v1.0.0, and can also be started
+# manually from the Actions tab.
+
+on:
+  push:
+    tags:
+      - 'v*'          # e.g. v1.0.0, v1.2.3-beta
+  workflow_dispatch:  # manual trigger (builds without publishing unless a tag was used)
+  # Optional: also run on pushes/PRs but only as a build check (no release).
+  pull_request:
+    paths:
+      - 'uwp-osu/**'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: write   # needed to create the release and upload assets
+
+jobs:
+  build-and-release:
+    name: Build UWP package & publish release
+    runs-on: windows-latest
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      PROJECT: uwp-osu/UwpOsu.csproj
+      APP_NAME: UwpOsu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore $env:PROJECT
+
+      # Publishes the Native AOT build. Output goes to uwp-osu/bin/x64/Release/net10.0-windows.../publish
+      - name: Publish (Native AOT)
+        run: dotnet publish $env:PROJECT -c Release -r win-x64 --self-contained true -p:XboxPort=true
+
+      # Dev-mode sideload packages don't need real signing; makeappx + Add-AppxPackage accepts an unsigned .appx.
+      - name: Locate publish output
+        id: findpub
+        shell: pwsh
+        run: |
+          $pub = Get-ChildItem -Path "uwp-osu/bin" -Recurse -Directory -Filter "publish" |
+                 Where-Object { (Get-ChildItem $_.FullName -Filter "$env:APP_NAME.exe" -ErrorAction SilentlyContinue).Count -gt 0 } |
+                 Select-Object -First 1
+          if (-not $pub) { Write-Error "Publish output not found"; exit 1 }
+          "dir=$($pub.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # makeappx requires the file to be named AppxManifest.xml at the package root;
+      # the manifest content itself is already correct, so we just copy it.
+      - name: Stage AppxManifest.xml
+        shell: pwsh
+        run: |
+          Copy-Item "uwp-osu/Package.appxmanifest" (Join-Path "${{ steps.findpub.outputs.dir }}" "AppxManifest.xml") -Force
+
+      - name: Pack .appx (makeappx from Windows SDK)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notlike "v*") { $tag = "dev-" + "${{ github.sha }}".Substring(0,7) }
+          $pkg = "$env:APP_NAME-$tag.appx"
+          $pubDir = "${{ steps.findpub.outputs.dir }}"
+          # Find makeappx.exe shipped with the Windows SDK on the runner.
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter makeappx.exe |
+                      Where-Object { $_.FullName -match "x64" } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { Write-Error "makeappx.exe not found"; exit 1 }
+          New-Item -ItemType Directory -Force -Path appx-out | Out-Null
+          & $makeappx.FullName pack /d "$pubDir" /p "appx-out/$pkg" /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "pkg=appx-out/$pkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "version=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload artifact (always, for PRs/manual runs too)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-appx
+          path: appx-out/*.appx
+          if-no-files-found: error
+
+      # Only publish to the Releases section when this run was triggered by a v* tag.
+      - name: Create GitHub Release & upload .appx
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: osu! Xbox ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: ${{ env.pkg }}
+          body: |
+            Sideload-ready `.appx` for Xbox Series X|S (Dev Mode).
+
+            Install via Xbox Device Portal and set the app type to **Game**.
+            This build includes the mouse-support manifest spoof (Edge identity + HID injection capabilities).

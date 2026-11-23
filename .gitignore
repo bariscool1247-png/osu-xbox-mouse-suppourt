@@ -1,6 +1,7 @@
 ﻿# Whitelist: ignore everything at the top level except the files that make up the port.
 /*
 !/.gitignore
+!/.github/
 !/README.md
 !/LICENSE
 !/docs/
