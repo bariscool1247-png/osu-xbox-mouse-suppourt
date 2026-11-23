@@ -8,13 +8,19 @@
   xmlns:rescap6="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities/6"
   IgnorableNamespaces="uap uap5 mp rescap rescap6">
 
-  <Identity Name="OsuXboxUwpOsu" Publisher="CN=OsuXboxDev" Version="1.0.0.0" />
+  <!-- Microsoft Edge spoof: identity mirrors the stock Windows 11 Xbox Edition Edge package
+       (Microsoft.MicrosoftEdge_8wekyb3d8bbwe). The Xbox shell grants hardware mouse/keyboard
+       input only to apps it recognises as pointer-capable "system" packages, and Edge is the
+       canonical one people spoof in Dev Mode sideloads to get a real cursor working. -->
+  <Identity Name="Microsoft.MicrosoftEdge" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" ProcessorArchitecture="neutral" Version="46.26100.1.0" />
 
-  <mp:PhoneIdentity PhoneProductId="04985feb-adb1-4ba5-b20f-0e3d779c9a20" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+  <!-- PhoneProductId matches the real Edge package GUID so the derived
+       PackageFamilyName (Microsoft.MicrosoftEdge_8wekyb3d8bbwe) lines up with the spoof. -->
+  <mp:PhoneIdentity PhoneProductId="1e02ff8b-99fa-4bf6-93ee-78e4c67badad" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
 
   <Properties>
     <DisplayName>osu! (Xbox)</DisplayName>
-    <PublisherDisplayName>osu-xbox dev</PublisherDisplayName>
+    <PublisherDisplayName>Microsoft Corporation</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
